@@ -1,5 +1,6 @@
 import Gig from "../models/gig.model.js";
 import createError from "../utils/createError.js";
+import User from "../models/user.model.js";
 
 export const createGig = async (req, res, next) => {
   if (!req.isSeller)
@@ -55,11 +56,7 @@ export const getGigs = async (req, res) => {
     const filters = {};
 
     if (userId) filters.userId = userId;
-
-    if (cat) {
-      filters.cat = { $regex: new RegExp(`^${cat}$`, "i") };
-    }
-
+    if (cat) filters.cat = { $regex: new RegExp(`^${cat}$`, "i") };
     if (search) {
       filters.$or = [
         { title: { $regex: search, $options: "i" } },
@@ -68,7 +65,6 @@ export const getGigs = async (req, res) => {
         { shortDesc: { $regex: search, $options: "i" } }
       ];
     }
-
     if (min || max) {
       filters.price = {};
       if (min) filters.price.$gte = parseInt(min);
@@ -81,11 +77,23 @@ export const getGigs = async (req, res) => {
     const gigs = await Gig.find(filters)
       .sort(sortBy)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean(); // plain JS objects for modification
+
+    // Add seller info
+    const gigsWithUser = await Promise.all(
+      gigs.map(async (gig) => {
+        const user = await User.findById(gig.userId).select("username img");
+        return {
+          ...gig,
+          username: user?.username || "Unknown User",
+          pp: user?.img || "/default-avatar.png"
+        };
+      })
+    );
 
     const total = await Gig.countDocuments(filters);
-
-    res.status(200).json({ gigs, total });
+    res.status(200).json({ gigs: gigsWithUser, total });
   } catch (err) {
     res.status(500).send("Failed to fetch gigs: " + err.message);
   }
